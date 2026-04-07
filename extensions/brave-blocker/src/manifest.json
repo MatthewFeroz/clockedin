@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Clockedin Blocker",
+  "version": "0.1.0",
+  "description": "Blocks configured distraction sites and reports attempts to Clockedin.",
+  "permissions": ["tabs", "webNavigation", "storage", "nativeMessaging", "alarms", "windows"],
+  "host_permissions": ["<all_urls>", "http://127.0.0.1/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["block.html", "block.css", "block.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

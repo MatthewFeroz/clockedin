@@ -1,0 +1,15 @@
+node_modules
+.DS_Store
+dist
+out
+.vite
+.turbo
+coverage
+*.tsbuildinfo
+*.db
+*.db-shm
+*.db-wal
+apps/desktop/release
+apps/desktop/out
+extensions/brave-blocker/dist
+helpers/macos-agent/.build
