@@ -11,20 +11,25 @@ export const HistoryPanel = ({ snapshot }: HistoryPanelProps) => (
     <article className="panel">
       <div className="panel__header">
         <div>
-          <span className="eyebrow">Attempts</span>
-          <h2>Recent distractions</h2>
+          <span className="eyebrow">This Session</span>
+          <h2>Distractions</h2>
         </div>
       </div>
 
       <div className="history-list">
         {snapshot.attempts.length === 0 ? (
-          <p className="empty-state">No attempts recorded yet.</p>
+          <p className="empty-state">No distractions yet — keep it up!</p>
         ) : (
           snapshot.attempts.map((attempt) => (
             <div key={attempt.id} className="history-row">
               <div>
                 <strong>{attempt.targetLabel}</strong>
-                <span>{attempt.context.url ?? attempt.context.windowTitle ?? attempt.context.appName ?? "Manual event"}</span>
+                <span>
+                  {attempt.context.url ??
+                    attempt.context.windowTitle ??
+                    attempt.context.appName ??
+                    "Manual event"}
+                </span>
               </div>
               <time>{new Date(attempt.detectedAt).toLocaleTimeString()}</time>
             </div>
@@ -36,14 +41,14 @@ export const HistoryPanel = ({ snapshot }: HistoryPanelProps) => (
     <article className="panel">
       <div className="panel__header">
         <div>
-          <span className="eyebrow">Sessions</span>
-          <h2>Recent history</h2>
+          <span className="eyebrow">History</span>
+          <h2>Past Sessions</h2>
         </div>
       </div>
 
       <div className="history-list">
         {snapshot.recentSessions.length === 0 ? (
-          <p className="empty-state">No sessions saved yet.</p>
+          <p className="empty-state">No past sessions yet.</p>
         ) : (
           snapshot.recentSessions.map((session) => (
             <div key={session.id} className="history-row">

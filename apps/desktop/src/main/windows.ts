@@ -1,6 +1,14 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 
+import {
+  DEFAULT_HEIGHT,
+  DEFAULT_WIDTH,
+  loadWindowState,
+  saveWindowState,
+  type WindowState
+} from "./window-state";
+
 const require = createRequire(import.meta.url);
 const { BrowserWindow } = require("electron") as typeof import("electron");
 type ElectronBrowserWindow = import("electron").BrowserWindow;
@@ -17,9 +25,13 @@ const loadRoute = async (window: ElectronBrowserWindow, hash: string) => {
 };
 
 export const createMainWindow = async () => {
+  const saved = loadWindowState();
+
   const window = new BrowserWindow({
-    width: 1180,
-    height: 860,
+    width: saved?.width ?? DEFAULT_WIDTH,
+    height: saved?.height ?? DEFAULT_HEIGHT,
+    ...(saved ? { x: saved.x, y: saved.y } : {}),
+    center: !saved,
     minWidth: 640,
     minHeight: 560,
     backgroundColor: "#fff4e8",
@@ -29,6 +41,43 @@ export const createMainWindow = async () => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false
+    }
+  });
+
+  if (saved?.maximized) {
+    window.maximize();
+  }
+
+  /* ── Persist window position & size ── */
+  let lastNormalBounds: Omit<WindowState, "maximized"> =
+    saved ?? { x: 0, y: 0, width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const persistState = () => {
+    if (window.isDestroyed()) return;
+
+    const maximized = window.isMaximized();
+    if (!maximized) {
+      lastNormalBounds = window.getBounds();
+    }
+
+    // Debounce writes — dragging / resizing fires many events
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveWindowState({ ...lastNormalBounds, maximized });
+    }, 400);
+  };
+
+  window.on("resize", persistState);
+  window.on("move", persistState);
+  window.on("close", () => {
+    // Flush immediately on close so the state is never lost
+    if (saveTimer) clearTimeout(saveTimer);
+    if (!window.isDestroyed()) {
+      const maximized = window.isMaximized();
+      if (!maximized) lastNormalBounds = window.getBounds();
+      saveWindowState({ ...lastNormalBounds, maximized });
     }
   });
 

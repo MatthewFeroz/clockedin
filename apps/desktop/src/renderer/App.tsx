@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
 
-import { ActiveSessionCard } from "./components/ActiveSessionCard";
 import { BubbleField, AMBIENT_BUBBLES } from "./components/BubbleField";
 import { HistoryPanel } from "./components/HistoryPanel";
-import { MetricCard } from "./components/MetricCard";
 import { OverlayView } from "./components/OverlayView";
 import { SessionControls } from "./components/SessionControls";
 import { StartScreen } from "./components/StartScreen";
 import { WindowGrabBar } from "./components/WindowGrabBar";
 import { useNow } from "./hooks/useNow";
 import { useSnapshot } from "./hooks/useSnapshot";
-import { formatRelativeMinutes } from "./lib/time";
 
 type DashboardProps = {
   snapshot: NonNullable<ReturnType<typeof useSnapshot>["snapshot"]>;
@@ -24,37 +21,12 @@ const Dashboard = ({ snapshot }: DashboardProps) => {
       <BubbleField bubbles={AMBIENT_BUBBLES} />
       <WindowGrabBar />
 
-      <header className="top-bar">
-        <div>
-          <span className="eyebrow">Clockedin</span>
-          <p>A small focus app with a timer, distraction tracker, and refocus popup.</p>
-          <p className="recorded-copy">
-            {snapshot.metrics.attemptsBlocked} distractions recorded{snapshot.activeSession ? " this session run." : "."}
-          </p>
-        </div>
-      </header>
+      <SessionControls
+        snapshot={snapshot}
+        now={now}
+        onEnd={() => void window.clockedin.endSession()}
+      />
 
-      <SessionControls snapshot={snapshot} onEnd={() => void window.clockedin.endSession()} />
-
-      <section className="metrics-grid metrics-grid--compact">
-        <MetricCard
-          label="Attempts tracked"
-          value={String(snapshot.metrics.attemptsBlocked)}
-          hint={`${snapshot.metrics.todayAttempts} today`}
-        />
-        <MetricCard
-          label="Reset time incurred"
-          value={formatRelativeMinutes(snapshot.metrics.totalResetSeconds)}
-          hint={`${snapshot.metrics.weekAttempts} attempts this week`}
-        />
-        <MetricCard
-          label="Completed sessions"
-          value={String(snapshot.metrics.sessionsCompleted)}
-          hint={`${snapshot.metrics.averageAttemptsPerSession.toFixed(1)} avg attempts / session`}
-        />
-      </section>
-
-      <ActiveSessionCard snapshot={snapshot} now={now} />
       <HistoryPanel snapshot={snapshot} />
     </main>
   );
