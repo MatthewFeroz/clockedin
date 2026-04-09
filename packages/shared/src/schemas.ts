@@ -37,7 +37,8 @@ export const attemptEventSchema = z.object({
     url: z.string().optional(),
     appName: z.string().optional(),
     processName: z.string().optional(),
-    bundleId: z.string().optional()
+    bundleId: z.string().optional(),
+    windowTitle: z.string().optional()
   })
 });
 
@@ -58,13 +59,8 @@ export const punishmentStateSchema = z.object({
 
 export type PunishmentState = z.infer<typeof punishmentStateSchema>;
 
-export const connectionStatusSchema = z.enum(["connected", "connecting", "disconnected"]);
-export type ConnectionStatus = z.infer<typeof connectionStatusSchema>;
-
 export const appSettingsSchema = z.object({
-  defaultSessionDurationMinutes: z.number().int().positive(),
-  requireFullEnforcement: z.boolean(),
-  soundEnabled: z.boolean()
+  defaultSessionDurationMinutes: z.number().int().positive()
 });
 
 export type AppSettingMap = z.infer<typeof appSettingsSchema>;
@@ -88,11 +84,6 @@ export const desktopSnapshotSchema = z.object({
   recentSessions: z.array(focusSessionSchema),
   metrics: metricsSummarySchema,
   settings: appSettingsSchema,
-  statuses: z.object({
-    extension: connectionStatusSchema,
-    helper: connectionStatusSchema
-  }),
-  enforcementReady: z.boolean(),
   latestAttempt: attemptEventSchema.nullable()
 });
 
@@ -108,76 +99,7 @@ export const updateSettingInputSchema = z.union([
   z.object({
     key: z.literal("defaultSessionDurationMinutes"),
     value: z.number().int().positive()
-  }),
-  z.object({
-    key: z.literal("requireFullEnforcement"),
-    value: z.boolean()
-  }),
-  z.object({
-    key: z.literal("soundEnabled"),
-    value: z.boolean()
   })
 ]);
 
 export type UpdateSettingInput = z.infer<typeof updateSettingInputSchema>;
-
-export const runtimeClientSourceSchema = z.enum(["extension-host", "native-helper"]);
-export type RuntimeClientSource = z.infer<typeof runtimeClientSourceSchema>;
-
-export const runtimeHelloSchema = z.object({
-  type: z.literal("HELLO"),
-  source: runtimeClientSourceSchema
-});
-
-export const runtimeAttemptDetectedSchema = z.object({
-  type: z.literal("ATTEMPT_DETECTED"),
-  source: runtimeClientSourceSchema,
-  payload: z.object({
-    targetId: z.string(),
-    targetLabel: z.string(),
-    platform: z.enum(["macos", "windows"]),
-    context: z.object({
-      url: z.string().optional(),
-      appName: z.string().optional(),
-      processName: z.string().optional(),
-      bundleId: z.string().optional()
-    })
-  })
-});
-
-export const runtimePingSchema = z.object({
-  type: z.literal("HEALTH_PING"),
-  source: runtimeClientSourceSchema
-});
-
-export const runtimeIncomingMessageSchema = z.discriminatedUnion("type", [
-  runtimeHelloSchema,
-  runtimeAttemptDetectedSchema,
-  runtimePingSchema
-]);
-
-export type RuntimeIncomingMessage = z.infer<typeof runtimeIncomingMessageSchema>;
-
-export const runtimeConfigSyncSchema = z.object({
-  type: z.literal("CONFIG_SYNC"),
-  payload: z.object({
-    blockedTargets: z.array(blockedTargetSchema),
-    sessionActive: z.boolean(),
-    sessionId: z.string().nullable()
-  })
-});
-
-export const runtimeStatusChangedSchema = z.object({
-  type: z.literal("STATUS_CHANGED"),
-  payload: z.object({
-    helper: connectionStatusSchema,
-    extension: connectionStatusSchema
-  })
-});
-
-export const runtimeOutgoingMessageSchema = z.discriminatedUnion("type", [
-  runtimeConfigSyncSchema,
-  runtimeStatusChangedSchema
-]);
-
-export type RuntimeOutgoingMessage = z.infer<typeof runtimeOutgoingMessageSchema>;

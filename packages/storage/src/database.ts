@@ -136,12 +136,6 @@ export class ClockedinStorage {
         case "defaultSessionDurationMinutes":
           merged.defaultSessionDurationMinutes = value as number;
           break;
-        case "requireFullEnforcement":
-          merged.requireFullEnforcement = value as boolean;
-          break;
-        case "soundEnabled":
-          merged.soundEnabled = value as boolean;
-          break;
       }
     }
 

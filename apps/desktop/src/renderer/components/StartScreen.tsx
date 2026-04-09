@@ -24,8 +24,8 @@ export const StartScreen = ({
       <span className="eyebrow">Clockedin</span>
       <h1>Clock in and focus.</h1>
       <p className="start-copy">
-        Start a focus session, keep a simple distraction count, and use the refocus popup when your
-        attention slips.
+        Start a focus session, track distracting tabs and apps locally, and use the refocus popup
+        when your attention slips.
       </p>
 
       <label className="field field--start">

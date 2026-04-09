@@ -12,7 +12,7 @@ export const HistoryPanel = ({ snapshot }: HistoryPanelProps) => (
       <div className="panel__header">
         <div>
           <span className="eyebrow">Attempts</span>
-          <h2>Recent blocks</h2>
+          <h2>Recent distractions</h2>
         </div>
       </div>
 
@@ -24,7 +24,7 @@ export const HistoryPanel = ({ snapshot }: HistoryPanelProps) => (
             <div key={attempt.id} className="history-row">
               <div>
                 <strong>{attempt.targetLabel}</strong>
-                <span>{attempt.context.url ?? attempt.context.appName ?? "Manual event"}</span>
+                <span>{attempt.context.url ?? attempt.context.windowTitle ?? attempt.context.appName ?? "Manual event"}</span>
               </div>
               <time>{new Date(attempt.detectedAt).toLocaleTimeString()}</time>
             </div>

@@ -12,7 +12,7 @@ export const ActiveSessionCard = ({ snapshot, now }: ActiveSessionCardProps) => 
     return (
       <section className="panel panel--soft">
         <h2>No active session</h2>
-        <p>Start a manual focus block to arm the website and app blockers.</p>
+        <p>Start a focus block to begin tracking distracting sites and apps.</p>
       </section>
     );
   }
@@ -38,7 +38,7 @@ export const ActiveSessionCard = ({ snapshot, now }: ActiveSessionCardProps) => 
 
       <div className="mini-stats">
         <div>
-          <span>Attempts blocked</span>
+          <span>Attempts tracked</span>
           <strong>{snapshot.attempts.length}</strong>
         </div>
         <div>

@@ -34,7 +34,7 @@ export const OverlayView = ({ snapshot }: OverlayViewProps) => {
           {punishment?.message.secondary ?? "Refocus on what you intended to do."}
         </p>
         <div className="overlay-card__meta">
-          <span>{snapshot.latestAttempt?.targetLabel ?? "Blocked distraction"}</span>
+          <span>{snapshot.latestAttempt?.targetLabel ?? "Recent distraction"}</span>
           <span>{snapshot.attempts.length} attempts this session</span>
         </div>
       </section>

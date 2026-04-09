@@ -23,7 +23,7 @@ describe("ClockedinStorage", () => {
     const session = storage.startSession(60);
     const attempt = storage.recordAttempt({
       sessionId: session.id,
-      source: "extension",
+      source: "native-helper",
       targetId: "website-youtube",
       targetLabel: "YouTube",
       platform: "macos",
@@ -53,7 +53,7 @@ describe("ClockedinStorage", () => {
     for (let index = 0; index < 2; index += 1) {
       const attempt = storage.recordAttempt({
         sessionId: session.id,
-        source: "extension",
+        source: "native-helper",
         targetId: "website-youtube",
         targetLabel: "YouTube",
         platform: "macos",

@@ -8,14 +8,13 @@
     "build": "node ./scripts/run-electron-vite.mjs build",
     "dev": "node ./scripts/run-electron-vite.mjs dev",
     "preview": "node ./scripts/run-electron-vite.mjs preview",
-    "rebuild:native": "node ./node_modules/.bin/electron-rebuild -f -w better-sqlite3 -v 37.5.0",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3 -v 37.5.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@clockedin/shared": "workspace:*",
     "@clockedin/storage": "workspace:*",
     "better-sqlite3": "^12.4.1",
-    "electron-updater": "^6.6.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

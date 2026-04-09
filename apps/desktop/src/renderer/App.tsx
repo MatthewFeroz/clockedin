@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 
-import type { BlockedTarget } from "@clockedin/shared";
-
 import { ActiveSessionCard } from "./components/ActiveSessionCard";
 import { BubbleField, AMBIENT_BUBBLES } from "./components/BubbleField";
 import { HistoryPanel } from "./components/HistoryPanel";
@@ -20,16 +18,6 @@ type DashboardProps = {
 
 const Dashboard = ({ snapshot }: DashboardProps) => {
   const now = useNow();
-  const [error, setError] = useState<string | null>(null);
-
-  const simulateAttempt = async (target: BlockedTarget) => {
-    setError(null);
-    try {
-      await window.clockedin.simulateAttempt(target);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Could not simulate attempt.");
-    }
-  };
 
   return (
     <main className="app-shell">
@@ -39,18 +27,18 @@ const Dashboard = ({ snapshot }: DashboardProps) => {
       <header className="top-bar">
         <div>
           <span className="eyebrow">Clockedin</span>
-          <p>A small focus app with a timer, distraction count, and refocus popup.</p>
+          <p>A small focus app with a timer, distraction tracker, and refocus popup.</p>
           <p className="recorded-copy">
             {snapshot.metrics.attemptsBlocked} distractions recorded{snapshot.activeSession ? " this session run." : "."}
           </p>
         </div>
       </header>
 
-      <SessionControls snapshot={snapshot} onEnd={() => void window.clockedin.endSession()} onSimulateAttempt={simulateAttempt} error={error} />
+      <SessionControls snapshot={snapshot} onEnd={() => void window.clockedin.endSession()} />
 
       <section className="metrics-grid metrics-grid--compact">
         <MetricCard
-          label="Attempts blocked"
+          label="Attempts tracked"
           value={String(snapshot.metrics.attemptsBlocked)}
           hint={`${snapshot.metrics.todayAttempts} today`}
         />

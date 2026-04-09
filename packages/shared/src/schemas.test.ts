@@ -1,31 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_BLOCKED_TARGETS } from "./constants";
-import { runtimeIncomingMessageSchema } from "./schemas";
 import { matchesBlockedApp, matchesBlockedDomain } from "./utils";
 
 describe("shared schemas", () => {
-  it("accepts attempt payloads from the extension host", () => {
-    const parsed = runtimeIncomingMessageSchema.parse({
-      type: "ATTEMPT_DETECTED",
-      source: "extension-host",
-      payload: {
-        targetId: "website-youtube",
-        targetLabel: "YouTube",
-        platform: "macos",
-        context: {
-          url: "https://www.youtube.com/watch?v=123"
-        }
-      }
-    });
-
-    expect(parsed.type).toBe("ATTEMPT_DETECTED");
-    if (parsed.type !== "ATTEMPT_DETECTED") {
-      throw new Error("Expected an ATTEMPT_DETECTED payload.");
-    }
-    expect(parsed.payload.targetId).toBe("website-youtube");
-  });
-
   it("ships the default website blockers", () => {
     expect(DEFAULT_BLOCKED_TARGETS.map((target) => target.id)).toEqual([
       "website-twitter",

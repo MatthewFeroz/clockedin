@@ -1,11 +1,6 @@
 import { createRequire } from "node:module";
 
-import type {
-  BlockedTarget,
-  DesktopSnapshot,
-  StartSessionInput,
-  UpdateSettingInput
-} from "@clockedin/shared";
+import type { DesktopSnapshot, StartSessionInput, UpdateSettingInput } from "@clockedin/shared";
 import { IPC_CHANNELS } from "@clockedin/shared";
 
 const require = createRequire(import.meta.url);
@@ -16,9 +11,6 @@ const api = {
   startSession: (payload: StartSessionInput) => ipcRenderer.invoke("desktop:start-session", payload),
   endSession: () => ipcRenderer.invoke("desktop:end-session"),
   updateSetting: (payload: UpdateSettingInput) => ipcRenderer.invoke("desktop:update-setting", payload),
-  simulateAttempt: (target: BlockedTarget) => ipcRenderer.invoke("desktop:simulate-attempt", target),
-  getRuntimeInfo: () =>
-    ipcRenderer.invoke("desktop:get-runtime-info") as Promise<{ host: string; port: number }>,
   onSnapshotUpdated: (callback: (snapshot: DesktopSnapshot) => void) => {
     const listener = (_event: unknown, snapshot: DesktopSnapshot) => callback(snapshot);
     ipcRenderer.on(IPC_CHANNELS.snapshotUpdated, listener);

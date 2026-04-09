@@ -1,8 +1,0 @@
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "types": ["chrome", "node", "bun-types"],
-    "lib": ["ES2022", "DOM"]
-  },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "native-host/**/*.ts"]
-}
