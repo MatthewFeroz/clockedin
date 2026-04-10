@@ -908,6 +908,11 @@ select {
   font-size: 0.85rem;
 }
 
+.history-reason {
+  font-style: italic;
+  color: var(--lavender-500);
+}
+
 .empty-state {
   margin: 0;
   padding: 18px;
@@ -1018,6 +1023,53 @@ select {
   max-width: 26ch;
   font-size: 1.02rem;
   color: var(--text-secondary);
+}
+
+/* ── Reason prompt ── */
+.overlay-reason {
+  margin: 0 auto 18px;
+  width: min(100%, 320px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.overlay-reason__input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid rgba(180, 154, 224, 0.35);
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-family: "Lora", Georgia, serif;
+  font-size: 1rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.overlay-reason__input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+.overlay-reason__input:focus {
+  border-color: var(--lavender-400);
+  box-shadow: 0 0 0 3px rgba(180, 154, 224, 0.18);
+}
+
+.overlay-reason__input:disabled {
+  opacity: 0.5;
+}
+
+.overlay-reason__hint {
+  font-family: "Poppins", Arial, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  opacity: 0.7;
 }
 
 .overlay-card__meta {

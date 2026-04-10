@@ -101,6 +101,26 @@ export class DesktopController {
     return settings;
   }
 
+  submitDistractionReason(attemptId: string, reason: string) {
+    this.storage.updateAttemptReason(attemptId, reason);
+
+    if (this.punishment?.attemptId === attemptId) {
+      /* Record actual duration spent on the prompt */
+      const actualSeconds = Math.ceil(
+        (Date.now() - new Date(this.punishment.startedAt).getTime()) / 1000
+      );
+      this.storage.incrementGuidedReset(
+        this.activeSession!.id,
+        Math.max(actualSeconds, 1)
+      );
+      this.punishment = null;
+    }
+
+    /* Refresh latestAttempt so snapshot includes the reason */
+    this.latestAttempt = this.storage.getRecentAttempts(1)[0] ?? null;
+    this.emit();
+  }
+
   private applyAttempt(input: Omit<AttemptEvent, "id" | "detectedAt" | "sessionId">) {
     const session = this.getResolvedSession();
     if (!session) {
@@ -113,8 +133,8 @@ export class DesktopController {
     });
 
     const startedAt = new Date();
-    const endsAt = new Date(startedAt.getTime() + GUIDED_RESET_SECONDS * 1000);
-    this.storage.incrementGuidedReset(session.id, GUIDED_RESET_SECONDS);
+    /* Punishment stays until user submits a reason (1-hour ceiling as safety valve) */
+    const endsAt = new Date(startedAt.getTime() + 60 * 60 * 1000);
     this.storage.recordPunishment(
       session.id,
       attempt.id,
@@ -132,8 +152,8 @@ export class DesktopController {
       endsAt: endsAt.toISOString(),
       attemptId: attempt.id,
       message: {
-        primary: "Take a deep breath.",
-        secondary: "Refocus on what you intended to do."
+        primary: "Why did you get distracted?",
+        secondary: "Type your reason and press Enter to refocus."
       }
     };
     this.emit();

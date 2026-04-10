@@ -33,6 +33,7 @@ export const attemptEventSchema = z.object({
   targetLabel: z.string(),
   detectedAt: z.string(),
   platform: z.enum(["macos", "windows"]),
+  reason: z.string().optional(),
   context: z.object({
     url: z.string().optional(),
     appName: z.string().optional(),
@@ -47,13 +48,13 @@ export type AttemptEvent = z.infer<typeof attemptEventSchema>;
 export const punishmentStateSchema = z.object({
   active: z.boolean(),
   mode: z.literal("guided_refocus"),
-  durationSeconds: z.literal(15),
+  durationSeconds: z.number().int().positive(),
   startedAt: z.string(),
   endsAt: z.string(),
   attemptId: z.string(),
   message: z.object({
-    primary: z.literal("Take a deep breath."),
-    secondary: z.literal("Refocus on what you intended to do.")
+    primary: z.string(),
+    secondary: z.string()
   })
 });
 

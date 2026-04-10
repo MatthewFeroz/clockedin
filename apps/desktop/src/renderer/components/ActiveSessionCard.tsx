@@ -1,5 +1,6 @@
 import type { DesktopSnapshot } from "@clockedin/shared";
 
+import { getActiveSessionAttemptCount } from "../lib/session";
 import { formatDuration, formatRelativeMinutes } from "../lib/time";
 
 type ActiveSessionCardProps = {
@@ -21,6 +22,7 @@ export const ActiveSessionCard = ({ snapshot, now }: ActiveSessionCardProps) => 
     0,
     Math.ceil((new Date(snapshot.activeSession.endsAt).getTime() - now) / 1000)
   );
+  const attemptCount = getActiveSessionAttemptCount(snapshot);
 
   return (
     <section className="panel panel--soft">
@@ -33,13 +35,13 @@ export const ActiveSessionCard = ({ snapshot, now }: ActiveSessionCardProps) => 
       </div>
 
       <p className="recorded-copy recorded-copy--panel">
-        {snapshot.attempts.length} distractions recorded during this focus session.
+        {attemptCount} distractions recorded during this focus session.
       </p>
 
       <div className="mini-stats">
         <div>
           <span>Attempts tracked</span>
-          <strong>{snapshot.attempts.length}</strong>
+          <strong>{attemptCount}</strong>
         </div>
         <div>
           <span>Latest distraction</span>

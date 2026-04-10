@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import {
+  type DesktopSnapshot,
   IPC_CHANNELS,
   startSessionInputSchema,
   updateSettingInputSchema
@@ -14,7 +15,7 @@ import { DesktopController } from "./controller";
 import { createMainWindow, createOverlayWindow } from "./windows";
 
 const require = createRequire(import.meta.url);
-const { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage } =
+const { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, shell } =
   require("electron") as typeof import("electron");
 
 type ElectronBrowserWindow = import("electron").BrowserWindow;
@@ -23,6 +24,10 @@ type ElectronTray = import("electron").Tray;
 let mainWindow: ElectronBrowserWindow | null = null;
 let tray: ElectronTray | null = null;
 let isQuitting = false;
+let lastPunishmentAttemptId: string | null = null;
+let pendingBeepTimers: Array<ReturnType<typeof setTimeout>> = [];
+
+const BEEP_INTERVAL_MS = 320;
 
 /**
  * Build a tiny 16×16 lavender circle icon for the system tray.
@@ -50,6 +55,58 @@ const createTrayImage = () => {
   return nativeImage.createFromBitmap(buf, { width: size, height: size });
 };
 
+const clearPendingBeeps = () => {
+  for (const timer of pendingBeepTimers) {
+    clearTimeout(timer);
+  }
+  pendingBeepTimers = [];
+};
+
+const playPunishmentBeeps = (count: number) => {
+  clearPendingBeeps();
+
+  for (let index = 0; index < count; index += 1) {
+    const timer = setTimeout(() => {
+      shell.beep();
+    }, index * BEEP_INTERVAL_MS);
+    pendingBeepTimers.push(timer);
+  }
+};
+
+const getActiveSessionAttemptCount = (snapshot: DesktopSnapshot) => {
+  const activeSessionId = snapshot.activeSession?.id;
+  if (!activeSessionId) {
+    return 0;
+  }
+
+  return snapshot.attempts.filter((attempt) => attempt.sessionId === activeSessionId).length;
+};
+
+const registerIpcHandlers = (controller: DesktopController, browserWatcher: BrowserWatcher) => {
+  ipcMain.removeHandler("desktop:get-snapshot");
+  ipcMain.removeHandler("desktop:start-session");
+  ipcMain.removeHandler("desktop:end-session");
+  ipcMain.removeHandler("desktop:update-setting");
+  ipcMain.removeHandler("desktop:submit-distraction-reason");
+
+  ipcMain.handle("desktop:get-snapshot", () => controller.getSnapshot());
+  ipcMain.handle("desktop:start-session", async (_event, payload) => {
+    const input = startSessionInputSchema.parse(payload);
+    const session = controller.startSession(input.durationMinutes);
+    await browserWatcher.triggerCheck();
+    return session;
+  });
+  ipcMain.handle("desktop:end-session", () => controller.endSession("cancelled"));
+  ipcMain.handle("desktop:update-setting", (_event, payload) => {
+    const input = updateSettingInputSchema.parse(payload);
+    return controller.updateSetting(input);
+  });
+  ipcMain.handle("desktop:submit-distraction-reason", (_event, payload) => {
+    const { attemptId, reason } = payload as { attemptId: string; reason: string };
+    controller.submitDistractionReason(attemptId, reason.trim());
+  });
+};
+
 const createEnvironment = async () => {
   const userDataPath = app.getPath("userData");
   mkdirSync(userDataPath, { recursive: true });
@@ -58,6 +115,7 @@ const createEnvironment = async () => {
   const controller = new DesktopController(storage);
   const browserWatcher = new BrowserWatcher(controller);
   browserWatcher.start();
+  registerIpcHandlers(controller, browserWatcher);
 
   mainWindow = await createMainWindow();
   const overlayWindow = await createOverlayWindow();
@@ -105,9 +163,16 @@ const createEnvironment = async () => {
     overlayWindow.webContents.send(IPC_CHANNELS.snapshotUpdated, snapshot);
 
     if (snapshot.punishment?.active) {
+      if (snapshot.punishment.attemptId !== lastPunishmentAttemptId) {
+        lastPunishmentAttemptId = snapshot.punishment.attemptId;
+        playPunishmentBeeps(getActiveSessionAttemptCount(snapshot));
+      }
+
       overlayWindow.show();
       overlayWindow.focus();
     } else {
+      lastPunishmentAttemptId = null;
+      clearPendingBeeps();
       overlayWindow.hide();
     }
   };
@@ -116,21 +181,9 @@ const createEnvironment = async () => {
     broadcast();
   });
 
-  ipcMain.handle("desktop:get-snapshot", () => controller.getSnapshot());
-  ipcMain.handle("desktop:start-session", (_event, payload) => {
-    const input = startSessionInputSchema.parse(payload);
-    const session = controller.startSession(input.durationMinutes);
-    browserWatcher.triggerCheck();
-    return session;
-  });
-  ipcMain.handle("desktop:end-session", () => controller.endSession("cancelled"));
-  ipcMain.handle("desktop:update-setting", (_event, payload) => {
-    const input = updateSettingInputSchema.parse(payload);
-    return controller.updateSetting(input);
-  });
-
   app.on("before-quit", () => {
     isQuitting = true;
+    clearPendingBeeps();
     browserWatcher.stop();
     storage.close();
   });

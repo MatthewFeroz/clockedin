@@ -29,6 +29,11 @@ export class ClockedinStorage {
   }
 
   private initialize() {
+    const insertBlockedTarget = this.db.prepare(`
+      INSERT INTO blocked_targets (id, kind, label, enabled, match_json)
+      VALUES (@id, @kind, @label, @enabled, @match_json)
+    `);
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS blocked_targets (
         id TEXT PRIMARY KEY,
@@ -55,7 +60,8 @@ export class ClockedinStorage {
         target_label TEXT NOT NULL,
         detected_at TEXT NOT NULL,
         platform TEXT NOT NULL,
-        context_json TEXT NOT NULL
+        context_json TEXT NOT NULL,
+        reason TEXT
       );
 
       CREATE TABLE IF NOT EXISTS punishment_events (
@@ -78,14 +84,9 @@ export class ClockedinStorage {
     };
 
     if (targetCount.count === 0) {
-      const insert = this.db.prepare(`
-        INSERT INTO blocked_targets (id, kind, label, enabled, match_json)
-        VALUES (@id, @kind, @label, @enabled, @match_json)
-      `);
-
       const insertMany = this.db.transaction((targets: BlockedTarget[]) => {
         for (const target of targets) {
-          insert.run({
+          insertBlockedTarget.run({
             ...target,
             enabled: target.enabled ? 1 : 0,
             match_json: JSON.stringify(target.match)
@@ -94,6 +95,37 @@ export class ClockedinStorage {
       });
 
       insertMany(DEFAULT_BLOCKED_TARGETS);
+    } else {
+      const existingIds = new Set(
+        (
+          this.db.prepare("SELECT id FROM blocked_targets").all() as Array<{
+            id: string;
+          }>
+        ).map((row) => row.id)
+      );
+
+      const missingDefaults = DEFAULT_BLOCKED_TARGETS.filter((target) => !existingIds.has(target.id));
+      if (missingDefaults.length > 0) {
+        const insertMany = this.db.transaction((targets: BlockedTarget[]) => {
+          for (const target of targets) {
+            insertBlockedTarget.run({
+              ...target,
+              enabled: target.enabled ? 1 : 0,
+              match_json: JSON.stringify(target.match)
+            });
+          }
+        });
+
+        insertMany(missingDefaults);
+      }
+    }
+
+    /* ── Migration: add reason column to attempt_events if missing ── */
+    const columns = this.db
+      .prepare("PRAGMA table_info(attempt_events)")
+      .all() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === "reason")) {
+      this.db.exec("ALTER TABLE attempt_events ADD COLUMN reason TEXT");
     }
 
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
@@ -212,6 +244,12 @@ export class ClockedinStorage {
     return attempt;
   }
 
+  updateAttemptReason(attemptId: string, reason: string) {
+    this.db
+      .prepare("UPDATE attempt_events SET reason = ? WHERE id = ?")
+      .run(reason, attemptId);
+  }
+
   recordPunishment(sessionId: string, attemptId: string, durationSeconds: number, startedAt: string, endsAt: string) {
     this.db
       .prepare(`
@@ -224,7 +262,7 @@ export class ClockedinStorage {
   getRecentAttempts(limit = 8): AttemptEvent[] {
     const rows = this.db
       .prepare(
-        "SELECT id, session_id, source, target_id, target_label, detected_at, platform, context_json FROM attempt_events ORDER BY detected_at DESC LIMIT ?"
+        "SELECT id, session_id, source, target_id, target_label, detected_at, platform, context_json, reason FROM attempt_events ORDER BY detected_at DESC LIMIT ?"
       )
       .all(limit) as Array<{
       id: string;
@@ -235,6 +273,7 @@ export class ClockedinStorage {
       detected_at: string;
       platform: AttemptEvent["platform"];
       context_json: string;
+      reason: string | null;
     }>;
 
     return rows.map((row) => ({
@@ -245,6 +284,7 @@ export class ClockedinStorage {
       targetLabel: row.target_label,
       detectedAt: row.detected_at,
       platform: row.platform,
+      reason: row.reason ?? undefined,
       context: JSON.parse(row.context_json)
     }));
   }

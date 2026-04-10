@@ -11,6 +11,8 @@ const api = {
   startSession: (payload: StartSessionInput) => ipcRenderer.invoke("desktop:start-session", payload),
   endSession: () => ipcRenderer.invoke("desktop:end-session"),
   updateSetting: (payload: UpdateSettingInput) => ipcRenderer.invoke("desktop:update-setting", payload),
+  submitDistractionReason: (attemptId: string, reason: string) =>
+    ipcRenderer.invoke("desktop:submit-distraction-reason", { attemptId, reason }),
   onSnapshotUpdated: (callback: (snapshot: DesktopSnapshot) => void) => {
     const listener = (_event: unknown, snapshot: DesktopSnapshot) => callback(snapshot);
     ipcRenderer.on(IPC_CHANNELS.snapshotUpdated, listener);

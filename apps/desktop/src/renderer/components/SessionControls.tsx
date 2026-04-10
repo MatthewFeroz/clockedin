@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DesktopSnapshot } from "@clockedin/shared";
 
+import { getActiveSessionAttemptCount } from "../lib/session";
 import { formatDuration, formatRelativeMinutes } from "../lib/time";
 
 type SessionControlsProps = {
@@ -13,6 +14,7 @@ export const SessionControls = ({ snapshot, now, onEnd }: SessionControlsProps) 
   const [confirming, setConfirming] = useState(false);
 
   const session = snapshot.activeSession;
+  const attemptCount = getActiveSessionAttemptCount(snapshot);
   const secondsRemaining = session
     ? Math.max(0, Math.ceil((new Date(session.endsAt).getTime() - now) / 1000))
     : 0;
@@ -29,7 +31,7 @@ export const SessionControls = ({ snapshot, now, onEnd }: SessionControlsProps) 
         </div>
 
         <p className="hero-center__stats">
-          {snapshot.attempts.length} distraction{snapshot.attempts.length !== 1 ? "s" : ""}
+          {attemptCount} distraction{attemptCount !== 1 ? "s" : ""}
           {session
             ? ` \u00b7 ${formatRelativeMinutes(session.guidedResetSecondsAccumulated)} reset time`
             : ""}

@@ -7,6 +7,7 @@ declare global {
       startSession(payload: StartSessionInput): Promise<unknown>;
       endSession(): Promise<unknown>;
       updateSetting(payload: UpdateSettingInput): Promise<unknown>;
+      submitDistractionReason(attemptId: string, reason: string): Promise<void>;
       onSnapshotUpdated(callback: (snapshot: DesktopSnapshot) => void): () => void;
     };
   }

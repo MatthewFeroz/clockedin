@@ -9,6 +9,7 @@ const execFileAsync = promisify(execFile);
 
 const POLL_INTERVAL_MS = 2_000;
 const DEDUPE_INTERVAL_MS = 8_000;
+const WINDOWS_BROWSER_SWEEP_LIMIT = 6;
 const WINDOWS_BROWSER_PROCESSES = new Set(["brave", "chrome", "msedge", "firefox", "opera"]);
 
 const WINDOWS_ACTIVE_WINDOW_SCRIPT = `
@@ -45,6 +46,7 @@ if ($null -eq $process) {
 }
 
 [pscustomobject]@{
+  handle = $windowHandle.ToInt64()
   title = $titleBuilder.ToString()
   processName = $process.ProcessName
   processId = $process.Id
@@ -53,39 +55,226 @@ if ($null -eq $process) {
 
 const WINDOWS_ACTIVE_WINDOW_COMMAND = Buffer.from(WINDOWS_ACTIVE_WINDOW_SCRIPT, "utf16le").toString("base64");
 
-const WINDOWS_BROWSER_WINDOWS_SCRIPT = `
-$browserNames = @('brave', 'chrome', 'msedge', 'firefox', 'opera')
+const WINDOWS_TOP_LEVEL_WINDOWS_SCRIPT = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
 
-Get-Process |
-  Where-Object { $browserNames -contains $_.ProcessName.ToLower() -and -not [string]::IsNullOrWhiteSpace($_.MainWindowTitle) } |
-  Select-Object @{
-      Name = 'title'
-      Expression = { $_.MainWindowTitle }
-    }, @{
-      Name = 'processName'
-      Expression = { $_.ProcessName }
-    }, @{
-      Name = 'processId'
-      Expression = { $_.Id }
-    } |
-  ConvertTo-Json -Compress
+public static class ClockedinWindowProbe {
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+  [DllImport("user32.dll")]
+  public static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
+
+  [DllImport("user32.dll")]
+  public static extern bool IsWindowVisible(IntPtr hWnd);
+
+  [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+
+  [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  public static extern int GetWindowTextLength(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+
+$windows = New-Object System.Collections.Generic.List[object]
+
+$callback = [ClockedinWindowProbe+EnumWindowsProc]{
+  param($windowHandle, $lParam)
+
+  if (-not [ClockedinWindowProbe]::IsWindowVisible($windowHandle)) {
+    return $true
+  }
+
+  $length = [ClockedinWindowProbe]::GetWindowTextLength($windowHandle)
+  if ($length -le 0) {
+    return $true
+  }
+
+  $titleBuilder = New-Object System.Text.StringBuilder ($length + 1)
+  [void][ClockedinWindowProbe]::GetWindowText($windowHandle, $titleBuilder, $titleBuilder.Capacity)
+  $title = $titleBuilder.ToString()
+  if ([string]::IsNullOrWhiteSpace($title)) {
+    return $true
+  }
+
+  $processId = 0
+  [void][ClockedinWindowProbe]::GetWindowThreadProcessId($windowHandle, [ref]$processId)
+  $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+  if ($null -eq $process) {
+    return $true
+  }
+
+  $windows.Add([pscustomobject]@{
+    handle = $windowHandle.ToInt64()
+    title = $title
+    processName = $process.ProcessName
+    processId = $process.Id
+  }) | Out-Null
+
+  return $true
+}
+
+[void][ClockedinWindowProbe]::EnumWindows($callback, [IntPtr]::Zero)
+$windows | ConvertTo-Json -Compress
 `;
 
-const WINDOWS_BROWSER_WINDOWS_COMMAND = Buffer.from(WINDOWS_BROWSER_WINDOWS_SCRIPT, "utf16le").toString("base64");
+const WINDOWS_TOP_LEVEL_WINDOWS_COMMAND = Buffer.from(WINDOWS_TOP_LEVEL_WINDOWS_SCRIPT, "utf16le").toString("base64");
 
-const buildWindowsCloseTabCommand = (processId: number) =>
+const buildWindowsCloseTabCommand = (windowHandle: number) =>
   Buffer.from(
     `
 try {
+  Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class ClockedinWindowControl {
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+}
+"@
   Add-Type -AssemblyName System.Windows.Forms
-  $shell = New-Object -ComObject WScript.Shell
-  if (-not $shell.AppActivate(${processId})) {
+  $windowHandle = [IntPtr]::new(${windowHandle})
+  [void][ClockedinWindowControl]::ShowWindowAsync($windowHandle, 9)
+  [void][ClockedinWindowControl]::SetForegroundWindow($windowHandle)
+
+  Start-Sleep -Milliseconds 120
+  [System.Windows.Forms.SendKeys]::SendWait('^w')
+  Start-Sleep -Milliseconds 120
+} catch {
+}
+`,
+    "utf16le"
+  ).toString("base64");
+
+const buildWindowsCloseWindowCommand = (windowHandle: number) =>
+  Buffer.from(
+    `
+try {
+  Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class ClockedinWindowControl {
+  [DllImport("user32.dll")]
+  public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+}
+"@
+
+  [void][ClockedinWindowControl]::PostMessage([IntPtr]::new(${windowHandle}), 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+} catch {
+}
+`,
+    "utf16le"
+  ).toString("base64");
+
+const buildWindowsListBrowserTabsCommand = (windowHandle: number) =>
+  Buffer.from(
+    `
+try {
+  Add-Type -AssemblyName UIAutomationClient
+  Add-Type -AssemblyName UIAutomationTypes
+
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new(${windowHandle}))
+  if ($null -eq $root) {
     return
   }
 
-  Start-Sleep -Milliseconds 80
-  $shell.SendKeys('^w')
-  Start-Sleep -Milliseconds 80
+  $condition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::TabItem
+  )
+  $tabs = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+  $results = New-Object System.Collections.Generic.List[object]
+
+  for ($index = 0; $index -lt $tabs.Count; $index++) {
+    $tab = $tabs.Item($index)
+    $title = $tab.Current.Name
+    if ([string]::IsNullOrWhiteSpace($title)) {
+      continue
+    }
+
+    $results.Add([pscustomobject]@{
+      index = $index
+      title = $title
+    }) | Out-Null
+  }
+
+  $results | ConvertTo-Json -Compress
+} catch {
+}
+`,
+    "utf16le"
+  ).toString("base64");
+
+const buildWindowsCloseBrowserTabByTitleCommand = (windowHandle: number, tabTitle: string) =>
+  Buffer.from(
+    `
+try {
+  Add-Type -AssemblyName UIAutomationClient
+  Add-Type -AssemblyName UIAutomationTypes
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class ClockedinWindowControl {
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+}
+"@
+
+  $windowHandle = [IntPtr]::new(${windowHandle})
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle($windowHandle)
+  if ($null -eq $root) {
+    return
+  }
+
+  $condition = New-Object System.Windows.Automation.AndCondition(
+    (New-Object System.Windows.Automation.PropertyCondition(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::TabItem
+    )),
+    (New-Object System.Windows.Automation.PropertyCondition(
+      [System.Windows.Automation.AutomationElement]::NameProperty,
+      ${JSON.stringify(tabTitle)}
+    ))
+  )
+
+  $tab = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+  if ($null -eq $tab) {
+    return
+  }
+
+  [void][ClockedinWindowControl]::ShowWindowAsync($windowHandle, 9)
+  [void][ClockedinWindowControl]::SetForegroundWindow($windowHandle)
+  Start-Sleep -Milliseconds 120
+
+  $selectionPattern = $null
+  if ($tab.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionPattern)) {
+    $selectionPattern.Select()
+  } else {
+    $tab.SetFocus()
+  }
+
+  Start-Sleep -Milliseconds 120
+  [System.Windows.Forms.SendKeys]::SendWait('^w')
+  Start-Sleep -Milliseconds 120
 } catch {
 }
 `,
@@ -102,15 +291,22 @@ type BrowserTab = {
 };
 
 type ActiveWindow = {
+  handle: number;
   title: string;
   processName: string;
   processId: number;
 };
 
-type BrowserWindowInfo = {
+type TopLevelWindowInfo = {
+  handle: number;
   title: string;
   processName: string;
   processId: number;
+};
+
+type BrowserTabInfo = {
+  index: number;
+  title: string;
 };
 
 const BROWSERS: BrowserName[] = ["Brave Browser", "Google Chrome"];
@@ -204,8 +400,8 @@ export class BrowserWatcher {
     this.recentDetections.clear();
   }
 
-  triggerCheck() {
-    void this.poll();
+  async triggerCheck() {
+    await this.poll();
   }
 
   private async poll() {
@@ -267,62 +463,116 @@ export class BrowserWatcher {
   }
 
   private async pollWindowsActivity() {
-    const activeWindow = await this.getWindowsActiveWindow();
-    if (activeWindow) {
+    const topLevelWindows = await this.listWindowsTopLevelWindows();
+    for (const windowInfo of topLevelWindows) {
       const appTarget = this.controller
         .getBlockedAppTargets()
-        .find((candidate) => matchesBlockedApp({ processName: activeWindow.processName }, candidate));
+        .find((candidate) => matchesBlockedApp({ processName: windowInfo.processName }, candidate));
 
       if (appTarget) {
-        const detectionKey = getDetectionKey([appTarget.id, activeWindow.processName, String(activeWindow.processId)]);
+        const detectionKey = getDetectionKey([appTarget.id, windowInfo.processName, String(windowInfo.handle)]);
         if (this.shouldSkipDetection(detectionKey)) {
-          return;
+          continue;
         }
 
         this.markDetection(detectionKey);
+        await this.closeWindowsWindow(windowInfo.handle);
         this.controller.recordDetectedAttempt({
           source: "native-helper",
           targetId: appTarget.id,
           targetLabel: appTarget.label,
           platform: "windows",
           context: {
-            appName: activeWindow.processName,
-            processName: activeWindow.processName,
-            windowTitle: activeWindow.title
+            appName: windowInfo.processName,
+            processName: windowInfo.processName,
+            windowTitle: windowInfo.title
           }
         });
-        return;
       }
     }
 
-    const browserWindows = await this.listWindowsBrowserWindows();
-    for (const browserWindow of browserWindows) {
-      const websiteTarget = this.controller
-        .getBlockedWebsiteTargets()
-        .find((candidate) => this.matchesWindowTitle(browserWindow.title, candidate));
+    for (let sweep = 0; sweep < WINDOWS_BROWSER_SWEEP_LIMIT; sweep += 1) {
+      let closedAnyWindow = false;
+      const browserWindows = await this.listWindowsBrowserWindows();
 
-      if (!websiteTarget) {
-        continue;
-      }
+      for (const browserWindow of browserWindows) {
+        const tabs = await this.listWindowsBrowserTabs(browserWindow.handle);
+        if (tabs.length === 0) {
+          const websiteTarget = this.controller
+            .getBlockedWebsiteTargets()
+            .find((candidate) => this.matchesWindowTitle(browserWindow.title, candidate));
 
-      const detectionKey = getDetectionKey([websiteTarget.id, browserWindow.processName, browserWindow.title]);
-      if (this.shouldSkipDetection(detectionKey)) {
-        continue;
-      }
+          if (!websiteTarget) {
+            continue;
+          }
 
-      this.markDetection(detectionKey);
-      await this.closeWindowsBrowserTab(browserWindow.processId);
-      this.controller.recordDetectedAttempt({
-        source: "native-helper",
-        targetId: websiteTarget.id,
-        targetLabel: websiteTarget.label,
-        platform: "windows",
-        context: {
-          appName: browserWindow.processName,
-          processName: browserWindow.processName,
-          windowTitle: browserWindow.title
+          const detectionKey = getDetectionKey([
+            websiteTarget.id,
+            browserWindow.processName,
+            String(browserWindow.handle),
+            browserWindow.title
+          ]);
+          if (this.shouldSkipDetection(detectionKey)) {
+            continue;
+          }
+
+          this.markDetection(detectionKey);
+          await this.closeWindowsBrowserTab(browserWindow.handle);
+          this.controller.recordDetectedAttempt({
+            source: "native-helper",
+            targetId: websiteTarget.id,
+            targetLabel: websiteTarget.label,
+            platform: "windows",
+            context: {
+              appName: browserWindow.processName,
+              processName: browserWindow.processName,
+              windowTitle: browserWindow.title
+            }
+          });
+          closedAnyWindow = true;
+          continue;
         }
-      });
+
+        for (const tab of tabs) {
+          const websiteTarget = this.controller
+            .getBlockedWebsiteTargets()
+            .find((candidate) => this.matchesWindowTitle(tab.title, candidate));
+
+          if (!websiteTarget) {
+            continue;
+          }
+
+          const detectionKey = getDetectionKey([
+            websiteTarget.id,
+            browserWindow.processName,
+            String(browserWindow.handle),
+            String(tab.index),
+            tab.title
+          ]);
+          if (this.shouldSkipDetection(detectionKey)) {
+            continue;
+          }
+
+          this.markDetection(detectionKey);
+          await this.closeWindowsBrowserTabByTitle(browserWindow.handle, tab.title);
+          this.controller.recordDetectedAttempt({
+            source: "native-helper",
+            targetId: websiteTarget.id,
+            targetLabel: websiteTarget.label,
+            platform: "windows",
+            context: {
+              appName: browserWindow.processName,
+              processName: browserWindow.processName,
+              windowTitle: tab.title
+            }
+          });
+          closedAnyWindow = true;
+        }
+      }
+
+      if (!closedAnyWindow) {
+        break;
+      }
     }
   }
 
@@ -369,6 +619,7 @@ export class BrowserWatcher {
 
       const parsed = JSON.parse(trimmed) as Partial<ActiveWindow>;
       if (
+        typeof parsed.handle !== "number" ||
         typeof parsed.title !== "string" ||
         typeof parsed.processName !== "string" ||
         typeof parsed.processId !== "number"
@@ -377,6 +628,7 @@ export class BrowserWatcher {
       }
 
       return {
+        handle: parsed.handle,
         title: parsed.title,
         processName: parsed.processName,
         processId: parsed.processId
@@ -386,11 +638,11 @@ export class BrowserWatcher {
     }
   }
 
-  private async listWindowsBrowserWindows(): Promise<BrowserWindowInfo[]> {
+  private async listWindowsTopLevelWindows(): Promise<TopLevelWindowInfo[]> {
     try {
       const { stdout } = await execFileAsync(
         "powershell.exe",
-        ["-NoProfile", "-EncodedCommand", WINDOWS_BROWSER_WINDOWS_COMMAND],
+        ["-NoProfile", "-EncodedCommand", WINDOWS_TOP_LEVEL_WINDOWS_COMMAND],
         {
           windowsHide: true,
           maxBuffer: 1024 * 1024
@@ -402,15 +654,48 @@ export class BrowserWatcher {
         return [];
       }
 
-      const parsed = JSON.parse(trimmed) as Partial<BrowserWindowInfo> | Array<Partial<BrowserWindowInfo>>;
+      const parsed = JSON.parse(trimmed) as Partial<TopLevelWindowInfo> | Array<Partial<TopLevelWindowInfo>>;
       const list = Array.isArray(parsed) ? parsed : [parsed];
 
       return list.filter(
-        (item): item is BrowserWindowInfo =>
+        (item): item is TopLevelWindowInfo =>
+          typeof item.handle === "number" &&
           typeof item.title === "string" &&
           typeof item.processName === "string" &&
-          typeof item.processId === "number" &&
-          WINDOWS_BROWSER_PROCESSES.has(item.processName.toLowerCase())
+          typeof item.processId === "number"
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private async listWindowsBrowserWindows(): Promise<TopLevelWindowInfo[]> {
+    const windows = await this.listWindowsTopLevelWindows();
+    return windows.filter((item) => WINDOWS_BROWSER_PROCESSES.has(item.processName.toLowerCase()));
+  }
+
+  private async listWindowsBrowserTabs(windowHandle: number): Promise<BrowserTabInfo[]> {
+    try {
+      const { stdout } = await execFileAsync(
+        "powershell.exe",
+        ["-NoProfile", "-Sta", "-EncodedCommand", buildWindowsListBrowserTabsCommand(windowHandle)],
+        {
+          windowsHide: true,
+          maxBuffer: 1024 * 1024
+        }
+      );
+
+      const trimmed = stdout.trim();
+      if (!trimmed) {
+        return [];
+      }
+
+      const parsed = JSON.parse(trimmed) as Partial<BrowserTabInfo> | Array<Partial<BrowserTabInfo>>;
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+
+      return list.filter(
+        (item): item is BrowserTabInfo =>
+          typeof item.index === "number" && typeof item.title === "string" && item.title.trim().length > 0
       );
     } catch {
       return [];
@@ -425,11 +710,41 @@ export class BrowserWatcher {
     }
   }
 
-  private async closeWindowsBrowserTab(processId: number) {
+  private async closeWindowsBrowserTab(windowHandle: number) {
     try {
       await execFileAsync(
         "powershell.exe",
-        ["-NoProfile", "-Sta", "-EncodedCommand", buildWindowsCloseTabCommand(processId)],
+        ["-NoProfile", "-Sta", "-EncodedCommand", buildWindowsCloseTabCommand(windowHandle)],
+        {
+          windowsHide: true,
+          maxBuffer: 1024 * 1024
+        }
+      );
+    } catch {
+      // Best effort. The distraction should still be recorded if the close fails.
+    }
+  }
+
+  private async closeWindowsBrowserTabByTitle(windowHandle: number, tabTitle: string) {
+    try {
+      await execFileAsync(
+        "powershell.exe",
+        ["-NoProfile", "-Sta", "-EncodedCommand", buildWindowsCloseBrowserTabByTitleCommand(windowHandle, tabTitle)],
+        {
+          windowsHide: true,
+          maxBuffer: 1024 * 1024
+        }
+      );
+    } catch {
+      // Best effort. The distraction should still be recorded if the close fails.
+    }
+  }
+
+  private async closeWindowsWindow(windowHandle: number) {
+    try {
+      await execFileAsync(
+        "powershell.exe",
+        ["-NoProfile", "-EncodedCommand", buildWindowsCloseWindowCommand(windowHandle)],
         {
           windowsHide: true,
           maxBuffer: 1024 * 1024

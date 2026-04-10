@@ -32,6 +32,24 @@ export const DEFAULT_BLOCKED_TARGETS: BlockedTarget[] = [
     match: {
       domains: ["linkedin.com", "www.linkedin.com"]
     }
+  },
+  {
+    id: "website-hacker-news",
+    kind: "website",
+    label: "Hacker News",
+    enabled: true,
+    match: {
+      domains: ["news.ycombinator.com"]
+    }
+  },
+  {
+    id: "website-reddit",
+    kind: "website",
+    label: "Reddit",
+    enabled: true,
+    match: {
+      domains: ["reddit.com", "www.reddit.com", "old.reddit.com"]
+    }
   }
 ];
 

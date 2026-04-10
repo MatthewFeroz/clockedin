@@ -24,12 +24,16 @@ export const HistoryPanel = ({ snapshot }: HistoryPanelProps) => (
             <div key={attempt.id} className="history-row">
               <div>
                 <strong>{attempt.targetLabel}</strong>
-                <span>
-                  {attempt.context.url ??
-                    attempt.context.windowTitle ??
-                    attempt.context.appName ??
-                    "Manual event"}
-                </span>
+                {attempt.reason ? (
+                  <span className="history-reason">{attempt.reason}</span>
+                ) : (
+                  <span>
+                    {attempt.context.url ??
+                      attempt.context.windowTitle ??
+                      attempt.context.appName ??
+                      "Manual event"}
+                  </span>
+                )}
               </div>
               <time>{new Date(attempt.detectedAt).toLocaleTimeString()}</time>
             </div>

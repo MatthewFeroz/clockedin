@@ -8,7 +8,9 @@ describe("shared schemas", () => {
     expect(DEFAULT_BLOCKED_TARGETS.map((target) => target.id)).toEqual([
       "website-twitter",
       "website-youtube",
-      "website-linkedin"
+      "website-linkedin",
+      "website-hacker-news",
+      "website-reddit"
     ]);
   });
 
@@ -18,6 +20,22 @@ describe("shared schemas", () => {
     expect(youtube).toBeDefined();
     expect(matchesBlockedDomain("https://studio.youtube.com/channel/abc", youtube!)).toBe(true);
     expect(matchesBlockedDomain("https://example.com", youtube!)).toBe(false);
+  });
+
+  it("matches hacker news by domain", () => {
+    const hackerNews = DEFAULT_BLOCKED_TARGETS.find((target) => target.id === "website-hacker-news");
+
+    expect(hackerNews).toBeDefined();
+    expect(matchesBlockedDomain("https://news.ycombinator.com/item?id=1", hackerNews!)).toBe(true);
+    expect(matchesBlockedDomain("https://ycombinator.com", hackerNews!)).toBe(false);
+  });
+
+  it("matches reddit by subdomain", () => {
+    const reddit = DEFAULT_BLOCKED_TARGETS.find((target) => target.id === "website-reddit");
+
+    expect(reddit).toBeDefined();
+    expect(matchesBlockedDomain("https://old.reddit.com/r/typescript", reddit!)).toBe(true);
+    expect(matchesBlockedDomain("https://example.com", reddit!)).toBe(false);
   });
 
   it("matches blocked apps by bundle identifier", () => {
