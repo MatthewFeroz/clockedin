@@ -120,4 +120,62 @@ describe("ClockedinStorage", () => {
 
     storage.close();
   });
+
+  it("builds a weekly insights roundup from recent sessions and attempts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "clockedin-storage-"));
+    tempDirs.push(dir);
+    const dbPath = join(dir, "clockedin.db");
+
+    let storage = new ClockedinStorage(dbPath);
+    const sessionOne = storage.startSession(60);
+    storage.recordAttempt({
+      sessionId: sessionOne.id,
+      source: "native-helper",
+      targetId: "website-youtube",
+      targetLabel: "YouTube",
+      platform: "windows",
+      context: {
+        url: "https://youtube.com/watch?v=weekly"
+      }
+    });
+    storage.incrementGuidedReset(sessionOne.id, 30);
+    storage.finishSession(sessionOne.id, "completed");
+
+    const sessionTwo = storage.startSession(30);
+    storage.finishSession(sessionTwo.id, "cancelled");
+    storage.close();
+
+    const db = new Database(dbPath);
+    const now = new Date();
+    const twoDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2, 9, 0, 0);
+    const oneDayAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 14, 30, 0);
+
+    db.prepare("UPDATE focus_sessions SET started_at = ?, ends_at = ? WHERE id = ?").run(
+      twoDaysAgo.toISOString(),
+      new Date(twoDaysAgo.getTime() + 60 * 60 * 1000).toISOString(),
+      sessionOne.id
+    );
+    db.prepare("UPDATE focus_sessions SET started_at = ?, ends_at = ? WHERE id = ?").run(
+      oneDayAgo.toISOString(),
+      new Date(oneDayAgo.getTime() + 30 * 60 * 1000).toISOString(),
+      sessionTwo.id
+    );
+    db.prepare("UPDATE attempt_events SET detected_at = ? WHERE session_id = ?").run(
+      new Date(twoDaysAgo.getTime() + 10 * 60 * 1000).toISOString(),
+      sessionOne.id
+    );
+    db.close();
+
+    storage = new ClockedinStorage(dbPath);
+    const insights = storage.getWeeklyInsights();
+
+    expect(insights.totalSessions).toBe(2);
+    expect(insights.totalAttempts).toBe(1);
+    expect(insights.completedSessions).toBe(1);
+    expect(insights.sessions).toHaveLength(2);
+    expect(insights.topDistractions[0]?.targetId).toBe("website-youtube");
+    expect(insights.daily.some((day) => day.attempts === 1)).toBe(true);
+
+    storage.close();
+  });
 });

@@ -48,6 +48,7 @@ export class DesktopController {
       attempts: this.storage.getRecentAttempts(),
       recentSessions: this.storage.getRecentSessions(),
       metrics: this.storage.getMetrics(),
+      weeklyInsights: this.storage.getWeeklyInsights(),
       settings: this.storage.getSettings(),
       latestAttempt: this.latestAttempt
     });

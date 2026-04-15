@@ -9,15 +9,67 @@ import {
   type FocusSession,
   metricsSummarySchema,
   type MetricsSummary,
-  type UpdateSettingInput
+  type UpdateSettingInput,
+  type WeeklyInsights,
+  weeklyInsightsSchema
 } from "@clockedin/shared";
 
 const nowIso = () => new Date().toISOString();
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const createId = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const addDays = (date: Date, days: number) => new Date(date.getTime() + days * DAY_MS);
+
+const toLocalDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+const toDayLabel = (date: Date) =>
+  date.toLocaleDateString(undefined, {
+    weekday: "short"
+  });
+
+const calculateFocusScore = (session: FocusSession, attempts: number) => {
+  const durationSeconds = Math.max(session.durationSeconds, 1);
+  const attemptPressure = attempts / Math.max(durationSeconds / 1800, 1);
+  const resetRatio = session.guidedResetSecondsAccumulated / durationSeconds;
+  const completionModifier =
+    session.status === "completed" ? 10 : session.status === "cancelled" ? -8 : 0;
+
+  return clamp(
+    Math.round(100 - attemptPressure * 18 - resetRatio * 65 + completionModifier),
+    0,
+    100
+  );
+};
+
 type DatabasePath = string;
+
+type AttemptRow = {
+  id: string;
+  session_id: string;
+  source: AttemptEvent["source"];
+  target_id: string;
+  target_label: string;
+  detected_at: string;
+  platform: AttemptEvent["platform"];
+  context_json: string;
+  reason: string | null;
+};
+
+type SessionRow = {
+  id: string;
+  started_at: string;
+  ends_at: string;
+  status: FocusSession["status"];
+  duration_seconds: number;
+  guided_reset_seconds_accumulated: number;
+};
 
 export class ClockedinStorage {
   private readonly db: Database.Database;
@@ -264,29 +316,9 @@ export class ClockedinStorage {
       .prepare(
         "SELECT id, session_id, source, target_id, target_label, detected_at, platform, context_json, reason FROM attempt_events ORDER BY detected_at DESC LIMIT ?"
       )
-      .all(limit) as Array<{
-      id: string;
-      session_id: string;
-      source: AttemptEvent["source"];
-      target_id: string;
-      target_label: string;
-      detected_at: string;
-      platform: AttemptEvent["platform"];
-      context_json: string;
-      reason: string | null;
-    }>;
+      .all(limit) as AttemptRow[];
 
-    return rows.map((row) => ({
-      id: row.id,
-      sessionId: row.session_id,
-      source: row.source,
-      targetId: row.target_id,
-      targetLabel: row.target_label,
-      detectedAt: row.detected_at,
-      platform: row.platform,
-      reason: row.reason ?? undefined,
-      context: JSON.parse(row.context_json)
-    }));
+    return rows.map(this.mapAttemptRow);
   }
 
   getRecentSessions(limit = 10): FocusSession[] {
@@ -294,23 +326,9 @@ export class ClockedinStorage {
       .prepare(
         "SELECT id, started_at, ends_at, status, duration_seconds, guided_reset_seconds_accumulated FROM focus_sessions ORDER BY started_at DESC LIMIT ?"
       )
-      .all(limit) as Array<{
-      id: string;
-      started_at: string;
-      ends_at: string;
-      status: FocusSession["status"];
-      duration_seconds: number;
-      guided_reset_seconds_accumulated: number;
-    }>;
+      .all(limit) as SessionRow[];
 
-    return rows.map((row) => ({
-      id: row.id,
-      startedAt: row.started_at,
-      endsAt: row.ends_at,
-      status: row.status,
-      durationSeconds: row.duration_seconds,
-      guidedResetSecondsAccumulated: row.guided_reset_seconds_accumulated
-    }));
+    return rows.map(this.mapSessionRow);
   }
 
   getMetrics(): MetricsSummary {
@@ -343,7 +361,184 @@ export class ClockedinStorage {
     });
   }
 
+  getWeeklyInsights(): WeeklyInsights {
+    const rangeEnd = startOfLocalDay(addDays(new Date(), 1));
+    const rangeStart = addDays(startOfLocalDay(new Date()), -6);
+    const sessions = this.getSessionsBetween(rangeStart.toISOString(), rangeEnd.toISOString());
+    const attempts = this.getAttemptsBetween(rangeStart.toISOString(), rangeEnd.toISOString());
+    const attemptsBySessionId = new Map<string, number>();
+    const distractionMap = new Map<
+      string,
+      {
+        targetId: string;
+        targetLabel: string;
+        attempts: number;
+        lastDetectedAt: string;
+      }
+    >();
+    const daily = Array.from({ length: 7 }, (_, index) => {
+      const day = addDays(rangeStart, index);
+      return {
+        date: toLocalDateKey(day),
+        label: toDayLabel(day),
+        attempts: 0,
+        sessionsStarted: 0,
+        sessionsCompleted: 0,
+        focusSeconds: 0,
+        resetSeconds: 0,
+        focusScore: null as number | null,
+        scoreSamples: [] as number[]
+      };
+    });
+    const dailyMap = new Map(daily.map((entry) => [entry.date, entry]));
+
+    for (const attempt of attempts) {
+      attemptsBySessionId.set(attempt.sessionId, (attemptsBySessionId.get(attempt.sessionId) ?? 0) + 1);
+
+      const dayKey = toLocalDateKey(new Date(attempt.detectedAt));
+      const bucket = dailyMap.get(dayKey);
+      if (bucket) {
+        bucket.attempts += 1;
+      }
+
+      const existing = distractionMap.get(attempt.targetId);
+      if (!existing) {
+        distractionMap.set(attempt.targetId, {
+          targetId: attempt.targetId,
+          targetLabel: attempt.targetLabel,
+          attempts: 1,
+          lastDetectedAt: attempt.detectedAt
+        });
+      } else {
+        existing.attempts += 1;
+        if (existing.lastDetectedAt < attempt.detectedAt) {
+          existing.lastDetectedAt = attempt.detectedAt;
+        }
+      }
+    }
+
+    const sessionsWithScores = sessions.map((session) => {
+      const attemptCount = attemptsBySessionId.get(session.id) ?? 0;
+      const focusScore = calculateFocusScore(session, attemptCount);
+      const dayKey = toLocalDateKey(new Date(session.startedAt));
+      const bucket = dailyMap.get(dayKey);
+
+      if (bucket) {
+        bucket.sessionsStarted += 1;
+        bucket.focusSeconds += session.durationSeconds;
+        bucket.resetSeconds += session.guidedResetSecondsAccumulated;
+        if (session.status === "completed") {
+          bucket.sessionsCompleted += 1;
+        }
+        bucket.scoreSamples.push(focusScore);
+      }
+
+      return {
+        sessionId: session.id,
+        startedAt: session.startedAt,
+        endsAt: session.endsAt,
+        status: session.status,
+        durationSeconds: session.durationSeconds,
+        attempts: attemptCount,
+        resetSeconds: session.guidedResetSecondsAccumulated,
+        focusScore
+      };
+    });
+
+    for (const bucket of daily) {
+      bucket.focusScore =
+        bucket.scoreSamples.length === 0
+          ? null
+          : Math.round(
+              bucket.scoreSamples.reduce((total, value) => total + value, 0) / bucket.scoreSamples.length
+            );
+    }
+
+    const averageFocusScore =
+      sessionsWithScores.length === 0
+        ? null
+        : Math.round(
+            sessionsWithScores.reduce((total, session) => total + session.focusScore, 0) /
+              sessionsWithScores.length
+          );
+
+    let streakDays = 0;
+    for (let index = daily.length - 1; index >= 0; index -= 1) {
+      if (daily[index].sessionsStarted === 0) {
+        break;
+      }
+      streakDays += 1;
+    }
+
+    return weeklyInsightsSchema.parse({
+      rangeStart: rangeStart.toISOString(),
+      rangeEnd: new Date().toISOString(),
+      totalAttempts: attempts.length,
+      totalSessions: sessions.length,
+      completedSessions: sessions.filter((session) => session.status === "completed").length,
+      totalFocusSeconds: sessions.reduce((total, session) => total + session.durationSeconds, 0),
+      totalResetSeconds: sessions.reduce(
+        (total, session) => total + session.guidedResetSecondsAccumulated,
+        0
+      ),
+      averageFocusScore,
+      streakDays,
+      daily: daily.map(({ scoreSamples: _scoreSamples, ...entry }) => entry),
+      sessions: sessionsWithScores.sort((left, right) => right.startedAt.localeCompare(left.startedAt)),
+      topDistractions: Array.from(distractionMap.values())
+        .sort((left, right) => right.attempts - left.attempts || right.lastDetectedAt.localeCompare(left.lastDetectedAt))
+        .slice(0, 5)
+    });
+  }
+
   close() {
     this.db.close();
   }
+
+  private getAttemptsBetween(startIso: string, endIso: string) {
+    const rows = this.db
+      .prepare(
+        `SELECT id, session_id, source, target_id, target_label, detected_at, platform, context_json, reason
+         FROM attempt_events
+         WHERE detected_at >= ? AND detected_at < ?
+         ORDER BY detected_at DESC`
+      )
+      .all(startIso, endIso) as AttemptRow[];
+
+    return rows.map(this.mapAttemptRow);
+  }
+
+  private getSessionsBetween(startIso: string, endIso: string) {
+    const rows = this.db
+      .prepare(
+        `SELECT id, started_at, ends_at, status, duration_seconds, guided_reset_seconds_accumulated
+         FROM focus_sessions
+         WHERE started_at >= ? AND started_at < ?
+         ORDER BY started_at DESC`
+      )
+      .all(startIso, endIso) as SessionRow[];
+
+    return rows.map(this.mapSessionRow);
+  }
+
+  private mapAttemptRow = (row: AttemptRow): AttemptEvent => ({
+    id: row.id,
+    sessionId: row.session_id,
+    source: row.source,
+    targetId: row.target_id,
+    targetLabel: row.target_label,
+    detectedAt: row.detected_at,
+    platform: row.platform,
+    reason: row.reason ?? undefined,
+    context: JSON.parse(row.context_json)
+  });
+
+  private mapSessionRow = (row: SessionRow): FocusSession => ({
+    id: row.id,
+    startedAt: row.started_at,
+    endsAt: row.ends_at,
+    status: row.status,
+    durationSeconds: row.duration_seconds,
+    guidedResetSecondsAccumulated: row.guided_reset_seconds_accumulated
+  });
 }

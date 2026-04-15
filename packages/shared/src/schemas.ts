@@ -77,6 +77,58 @@ export const metricsSummarySchema = z.object({
 
 export type MetricsSummary = z.infer<typeof metricsSummarySchema>;
 
+export const weeklyDailyInsightSchema = z.object({
+  date: z.string(),
+  label: z.string(),
+  attempts: z.number().int().nonnegative(),
+  sessionsStarted: z.number().int().nonnegative(),
+  sessionsCompleted: z.number().int().nonnegative(),
+  focusSeconds: z.number().int().nonnegative(),
+  resetSeconds: z.number().int().nonnegative(),
+  focusScore: z.number().min(0).max(100).nullable()
+});
+
+export type WeeklyDailyInsight = z.infer<typeof weeklyDailyInsightSchema>;
+
+export const sessionRoundupSchema = z.object({
+  sessionId: z.string(),
+  startedAt: z.string(),
+  endsAt: z.string(),
+  status: focusSessionSchema.shape.status,
+  durationSeconds: z.number().int().nonnegative(),
+  attempts: z.number().int().nonnegative(),
+  resetSeconds: z.number().int().nonnegative(),
+  focusScore: z.number().min(0).max(100)
+});
+
+export type SessionRoundup = z.infer<typeof sessionRoundupSchema>;
+
+export const distractionTrendSchema = z.object({
+  targetId: z.string(),
+  targetLabel: z.string(),
+  attempts: z.number().int().nonnegative(),
+  lastDetectedAt: z.string()
+});
+
+export type DistractionTrend = z.infer<typeof distractionTrendSchema>;
+
+export const weeklyInsightsSchema = z.object({
+  rangeStart: z.string(),
+  rangeEnd: z.string(),
+  totalAttempts: z.number().int().nonnegative(),
+  totalSessions: z.number().int().nonnegative(),
+  completedSessions: z.number().int().nonnegative(),
+  totalFocusSeconds: z.number().int().nonnegative(),
+  totalResetSeconds: z.number().int().nonnegative(),
+  averageFocusScore: z.number().min(0).max(100).nullable(),
+  streakDays: z.number().int().nonnegative(),
+  daily: z.array(weeklyDailyInsightSchema),
+  sessions: z.array(sessionRoundupSchema),
+  topDistractions: z.array(distractionTrendSchema)
+});
+
+export type WeeklyInsights = z.infer<typeof weeklyInsightsSchema>;
+
 export const desktopSnapshotSchema = z.object({
   blockedTargets: z.array(blockedTargetSchema),
   activeSession: focusSessionSchema.nullable(),
@@ -84,6 +136,7 @@ export const desktopSnapshotSchema = z.object({
   attempts: z.array(attemptEventSchema),
   recentSessions: z.array(focusSessionSchema),
   metrics: metricsSummarySchema,
+  weeklyInsights: weeklyInsightsSchema,
   settings: appSettingsSchema,
   latestAttempt: attemptEventSchema.nullable()
 });

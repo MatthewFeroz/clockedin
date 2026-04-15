@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BubbleField, AMBIENT_BUBBLES } from "./components/BubbleField";
 import { HistoryPanel } from "./components/HistoryPanel";
+import { InsightsPage } from "./components/InsightsPage";
 import { OverlayView } from "./components/OverlayView";
 import { SessionControls } from "./components/SessionControls";
 import { StartScreen } from "./components/StartScreen";
@@ -9,11 +10,28 @@ import { WindowGrabBar } from "./components/WindowGrabBar";
 import { useNow } from "./hooks/useNow";
 import { useSnapshot } from "./hooks/useSnapshot";
 
-type DashboardProps = {
-  snapshot: NonNullable<ReturnType<typeof useSnapshot>["snapshot"]>;
+type Route = "home" | "insights" | "overlay";
+
+const getRoute = (): Route => {
+  const hash = window.location.hash;
+
+  if (hash.includes("/overlay")) {
+    return "overlay";
+  }
+
+  if (hash.includes("/insights")) {
+    return "insights";
+  }
+
+  return "home";
 };
 
-const Dashboard = ({ snapshot }: DashboardProps) => {
+type DashboardProps = {
+  snapshot: NonNullable<ReturnType<typeof useSnapshot>["snapshot"]>;
+  onViewInsights: () => void;
+};
+
+const Dashboard = ({ snapshot, onViewInsights }: DashboardProps) => {
   const now = useNow();
 
   return (
@@ -24,6 +42,7 @@ const Dashboard = ({ snapshot }: DashboardProps) => {
       <SessionControls
         snapshot={snapshot}
         now={now}
+        onViewInsights={onViewInsights}
         onEnd={() => void window.clockedin.endSession()}
       />
 
@@ -34,15 +53,59 @@ const Dashboard = ({ snapshot }: DashboardProps) => {
 
 export const App = () => {
   const { snapshot, error } = useSnapshot();
-  const isOverlay = window.location.hash.includes("/overlay");
+  const [route, setRoute] = useState<Route>(() => getRoute());
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [startError, setStartError] = useState<string | null>(null);
+  const [completionMessage, setCompletionMessage] = useState<string | null>(null);
+  const previousActiveSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      setRoute(getRoute());
+    };
+
+    window.addEventListener("hashchange", onHashChange);
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (snapshot) {
       setDurationMinutes(snapshot.settings.defaultSessionDurationMinutes);
     }
   }, [snapshot?.settings.defaultSessionDurationMinutes]);
+
+  useEffect(() => {
+    if (!snapshot) {
+      return;
+    }
+
+    const previousActiveSessionId = previousActiveSessionIdRef.current;
+    const currentActiveSessionId = snapshot.activeSession?.id ?? null;
+
+    if (previousActiveSessionId && !currentActiveSessionId) {
+      const mostRecentSession = snapshot.recentSessions[0];
+      if (
+        mostRecentSession?.id === previousActiveSessionId &&
+        mostRecentSession.status === "completed"
+      ) {
+        setCompletionMessage(
+          "Hey, you did a great job focusing on this session. Let me know if you'd like to start another one."
+        );
+      }
+    }
+
+    previousActiveSessionIdRef.current = currentActiveSessionId;
+  }, [snapshot]);
+
+  const openInsights = () => {
+    window.location.hash = "/insights";
+  };
+
+  const openHome = () => {
+    window.location.hash = "";
+  };
 
   if (!snapshot) {
     return (
@@ -58,8 +121,12 @@ export const App = () => {
     );
   }
 
-  if (isOverlay) {
+  if (route === "overlay") {
     return <OverlayView snapshot={snapshot} />;
+  }
+
+  if (route === "insights") {
+    return <InsightsPage snapshot={snapshot} onBack={openHome} />;
   }
 
   if (!snapshot.activeSession) {
@@ -67,8 +134,10 @@ export const App = () => {
       <StartScreen
         durationMinutes={durationMinutes}
         onDurationChange={setDurationMinutes}
+        onViewInsights={openInsights}
         onClockIn={async () => {
           setStartError(null);
+          setCompletionMessage(null);
           try {
             await window.clockedin.startSession({
               durationMinutes
@@ -82,9 +151,11 @@ export const App = () => {
           }
         }}
         error={startError}
+        completionMessage={completionMessage}
+        onDismissCompletionMessage={() => setCompletionMessage(null)}
       />
     );
   }
 
-  return <Dashboard snapshot={snapshot} />;
+  return <Dashboard snapshot={snapshot} onViewInsights={openInsights} />;
 };

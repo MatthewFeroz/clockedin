@@ -14,3 +14,15 @@ export const formatRelativeMinutes = (seconds: number) => {
   const remainder = seconds % 60;
   return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
 };
+
+export const formatHoursAndMinutes = (seconds: number) => {
+  const totalMinutes = Math.max(0, Math.round(seconds / 60));
+
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+};

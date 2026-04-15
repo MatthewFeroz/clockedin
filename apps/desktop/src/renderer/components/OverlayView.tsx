@@ -19,13 +19,31 @@ export const OverlayView = ({ snapshot }: OverlayViewProps) => {
 
   /* Auto-focus the input whenever a new punishment appears */
   useEffect(() => {
-    if (punishment?.active) {
-      setReason("");
-      setSubmitting(false);
-      /* Small delay so the window is fully focused before we grab the input */
-      const timer = setTimeout(() => inputRef.current?.focus(), 80);
-      return () => clearTimeout(timer);
+    if (!punishment?.active) {
+      return;
     }
+
+    setReason("");
+    setSubmitting(false);
+
+    const focusReasonInput = () => {
+      inputRef.current?.focus({ preventScroll: true });
+    };
+
+    /* The overlay window can receive focus after the input mounts, so retry briefly
+       and also refocus when the window itself becomes active. */
+    const frame = requestAnimationFrame(focusReasonInput);
+    const retryTimers = [60, 180].map((delay) => setTimeout(focusReasonInput, delay));
+
+    window.addEventListener("focus", focusReasonInput);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      for (const timer of retryTimers) {
+        clearTimeout(timer);
+      }
+      window.removeEventListener("focus", focusReasonInput);
+    };
   }, [punishment?.attemptId]);
 
   const handleSubmit = async () => {

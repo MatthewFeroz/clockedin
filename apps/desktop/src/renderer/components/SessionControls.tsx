@@ -7,10 +7,11 @@ import { formatDuration, formatRelativeMinutes } from "../lib/time";
 type SessionControlsProps = {
   snapshot: DesktopSnapshot;
   now: number;
+  onViewInsights: () => void;
   onEnd: () => void;
 };
 
-export const SessionControls = ({ snapshot, now, onEnd }: SessionControlsProps) => {
+export const SessionControls = ({ snapshot, now, onViewInsights, onEnd }: SessionControlsProps) => {
   const [confirming, setConfirming] = useState(false);
 
   const session = snapshot.activeSession;
@@ -37,9 +38,14 @@ export const SessionControls = ({ snapshot, now, onEnd }: SessionControlsProps) 
             : ""}
         </p>
 
-        <button className="button button--ghost" onClick={() => setConfirming(true)}>
-          End Session
-        </button>
+        <div className="hero-center__actions">
+          <button className="button button--ghost" onClick={onViewInsights}>
+            Weekly Insights
+          </button>
+          <button className="button button--ghost" onClick={() => setConfirming(true)}>
+            End Session
+          </button>
+        </div>
       </section>
 
       {confirming && (

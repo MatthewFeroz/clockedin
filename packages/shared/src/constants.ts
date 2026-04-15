@@ -54,5 +54,5 @@ export const DEFAULT_BLOCKED_TARGETS: BlockedTarget[] = [
 ];
 
 export const DEFAULT_SETTINGS: AppSettingMap = {
-  defaultSessionDurationMinutes: 60
+  defaultSessionDurationMinutes: 30
 };
